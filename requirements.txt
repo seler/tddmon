@@ -1,0 +1,5 @@
+coverage==3.7.1
+mock==1.0.1
+django-smarttest==0.1.0
+six==1.8.0
+-e git+https://github.com/kidosoft/Morelia.git#egg=Morelia
