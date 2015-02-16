@@ -5,7 +5,7 @@ with open('README.rst') as file:
 
 setup(
     name="tddmon",
-    version="0.1.0",
+    version="0.1.1",
     description='TDD flow monitor.',
     long_description=long_description,
     url="http://kidosoft.pl",
