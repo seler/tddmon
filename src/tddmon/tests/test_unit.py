@@ -15,7 +15,8 @@ from tddmon import (main, StatusDisplay, DEFAULT_COLORS, LogWriter,
 class MainParseTestCase(unittest.TestCase):
     """ Test :py:meth:`main`. """
 
-    def test_should_raise_exception_if_no_filename(self):
+    @patch('tddmon.__main__.sys.stderr')
+    def test_should_raise_exception_if_no_filename(self, stderr):
         """ Scenariusz: brak podanego pliku """
         # Arrange
         # Act
@@ -499,7 +500,8 @@ class TddMonLoopTestCase(unittest.TestCase):
     def test_should_stop_on_keayboard_interrupt(self, FileMonitor):
         """ Scenariusz: przerwanie działania """
         # Arrange
-        obj = TddMon('test_file.py')
+        output = StringIO()
+        obj = TddMon('test_file.py', output=output)
         FileMonitor().wait_for_change.side_effect = [KeyboardInterrupt]
         # Act
         obj.loop()

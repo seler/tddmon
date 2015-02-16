@@ -127,6 +127,7 @@ class LogWriter(AbstractWriter):
         to_diff = [line for line in to_diff if not line.startswith('Ran')]
         if to_diff != self._last_traceback:
             self._output.write(text)
+            self._output.flush()
             self._last_traceback = to_diff
 
 
@@ -154,7 +155,6 @@ class TestRunner(object):
             'coverage', 'run',
             '--branch',
             '--source', '.',
-            '--omit', 'pavement.py,setup.py',
         ] + self._command.split()
         program_output, test_output = self._run_command(command)
         command = ['coverage', 'report']
@@ -292,7 +292,7 @@ class TddMon(object):
 
         """
         stdoutdata, stderrdata = self.test_runner.run()
-        self.log_writer.write(stdoutdata)
+        self.log_writer.write(stdoutdata + stderrdata)
         result = self.test_result_parser.parse(stderrdata)
         self.status_display.write(*result)
 

@@ -1,4 +1,0 @@
-[paths]
-venvs=
-    src/tddmon/
-    .tox/*/lib/python*/site-packages/tddmon/

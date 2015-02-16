@@ -1,6 +1,6 @@
 .. toctree::
 
-   funkcjonalnosci
+.. include:: ../README.rst
 
 
 Indices and tables

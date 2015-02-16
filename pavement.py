@@ -10,7 +10,6 @@ except ImportError:
     pass
 sys.path.append('.')
 
-
 options(
     project=Bunch(
         name='tddmon',
@@ -64,30 +63,31 @@ def build():
 
 @task
 @needs('build')
-def install_all(options):
-    for dist_file in glob.glob('dist/*'):
-        for pip_bin in glob.glob('.tox/*/bin/pip'):
-            try:
-                sh('%s install %s' % (pip_bin, dist_file))
-                python_bin = pip_bin.replace('/pip', '/python')
-                sh('%s -c "import %s"' % (python_bin, options.name))
-            finally:
-                sh('%s uninstall %s' % (pip_bin, dist_file), ignore_error=True)
+def test_install(options):
+    """ Test installation of packages. """
+    distfiles = glob.glob('dist/*')
+    venv_bin_dir = '.tox/status/bin'
+    pip_path = os.path.join(venv_bin_dir, 'pip')
+    python_path = os.path.join(venv_bin_dir, 'python')
+    for idx, distfile in enumerate(distfiles):
+        try:
+            # install package
+            sh('%s install -q %s' % (pip_path, distfile))
+            # test package installation
+            sh('%s -c "import %s"' % (python_path, options.name))
+        finally:
+            # uninstall
+            sh('%s uninstall -q -y %s' % (pip_path, options.package_name), ignore_error=True)
 
 
 @task
-def coverage_all(options):
-    sh('coverage erase')
-    try:
-        sh('tox')
-    finally:
-        sh('coverage combine')
-        sh("coverage html --include='src/%s*'" % options.name)
-        sh("coverage report --include='src/%s*' --fail-under=100" % options.name)
+def test_all(options):
+    """ Run tests in different environtemtns. """
+    sh('tox')
 
 
 @task
-@needs('cleanup', 'kwalitee', 'coverage_all', 'install_all', 'html')
+@needs('cleanup', 'kwalitee', 'test_all', 'test_install', 'html')
 def pre_release(options):
     """ Check project before release. """
     pass
@@ -124,8 +124,3 @@ def twine_upload(options):
 def release(options):
     """ Generate packages and upload to PyPI. """
     pass
-
-
-@task
-def tddmon(options):
-    sh("tddmon -l test_run.log '-m unittest discover src'")

@@ -14,7 +14,7 @@ from tddmon import DEFAULT_COLORS, TddMon
 class RunMonitorTestCase(unittest.TestCase):
     " Testy akceptacyjne przypadku: uruchamiam testy "
 
-    feature = 'docs/uruchamiam_testy.feature'
+    feature = 'docs/features/uruchamiam_testy.feature'
 
     def step_monitorowane_sa_pliki(self, monitored_files):
         u'monitorowane są pliki "([^"]+)"'
