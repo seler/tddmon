@@ -6,12 +6,14 @@ import unittest
 
 from mock import patch, call
 from six.moves import StringIO
+from smarttest.decorators import test_type
 
 from tddmon import (main, StatusDisplay, DEFAULT_COLORS, LogWriter,
                     TestRunner, TestResultParser, FileMonitor,
                     FileMonitorTimeoutError, TddMon)
 
 
+@test_type('unit')
 class MainParseTestCase(unittest.TestCase):
     """ Test :py:meth:`main`. """
 
@@ -35,12 +37,14 @@ class MainParseTestCase(unittest.TestCase):
         TddMon().loop.assert_called_once_with()
 
 
+@test_type('unit')
 class StatusDisplayWriteTestCase(unittest.TestCase):
     """ Test :py:meth:`StatusDisplay.write`. """
 
     def setUp(self):
         self.output = StringIO()
         self.obj = StatusDisplay(self.output)
+        super(StatusDisplayWriteTestCase, self).setUp()
 
     def test_should_write_in_green_on_successful_run(self):
         """ Scenariusz: testy zakończone sukcesem """
@@ -129,6 +133,7 @@ class StatusDisplayWriteTestCase(unittest.TestCase):
         return expected
 
 
+@test_type('unit')
 class StatusDisplayWriteHeaderTestCase(unittest.TestCase):
     """ Test :py:meth:`StatusDisplay.write_header`. """
 
@@ -144,6 +149,7 @@ class StatusDisplayWriteHeaderTestCase(unittest.TestCase):
         self.assertEqual(output.getvalue(), expected)
 
 
+@test_type('unit')
 class StatusDisplayWriteLastTestCase(unittest.TestCase):
     """ Test :py:meth:`StatusDisplay.write_last`. """
 
@@ -159,6 +165,7 @@ class StatusDisplayWriteLastTestCase(unittest.TestCase):
         self.assertEqual(output.getvalue(), expected)
 
 
+@test_type('unit')
 class LogWriterWriteTestCase(unittest.TestCase):
     """ Test :py:meth:`LogWriter.write`. """
 
@@ -227,6 +234,7 @@ FAILED (failures=1)'''
         self.assertEqual(output.getvalue(), first_traceback)
 
 
+@test_type('unit')
 class TestRunnerRunTestCase(unittest.TestCase):
     """ Test :py:meth:`TestRunner.run`. """
 
@@ -246,6 +254,7 @@ class TestRunnerRunTestCase(unittest.TestCase):
         self.assertTrue(command in Popen.call_args_list[0][0][0])
 
 
+@test_type('unit')
 class TestResultParserParseTestCase(unittest.TestCase):
     """ Test :py:meth:`TestResultParser.parse`. """
 
@@ -315,6 +324,7 @@ leap       26      0      6      0   91%
         self.assertEqual(result, (1, 0, 0, 91))
 
 
+@test_type('unit')
 class FileMonitorWaitForChangeTestCase(unittest.TestCase):
     """ Test :py:meth:`FileMonitor.wait_for_change`. """
 
@@ -344,6 +354,7 @@ class FileMonitorWaitForChangeTestCase(unittest.TestCase):
         self.assertTrue(result)
 
 
+@test_type('unit')
 class FileMonitorCodeHasChangedTestCase(unittest.TestCase):
     """ Test :py:meth:`FileMonitor.code_has_changed`. """
 
@@ -385,6 +396,7 @@ class FileMonitorCodeHasChangedTestCase(unittest.TestCase):
         self.assertTrue(result)
 
 
+@test_type('unit')
 class FileMonitorGetMonitoredFilesTestCase(unittest.TestCase):
     """ Test :py:meth:`FileMonitor.get_monitored_files`. """
 
@@ -417,11 +429,13 @@ class FileMonitorGetMonitoredFilesTestCase(unittest.TestCase):
         self.assertEqual(list(result), files)
 
 
+@test_type('unit')
 class FileMonitorFileHasChagnedTestCase(unittest.TestCase):
     """ Test :py:meth:`FileMonitor.file_has_changed`. """
 
     def setUp(self):
         self.obj = FileMonitor()
+        super(FileMonitorFileHasChagnedTestCase, self).setUp()
 
     @patch('tddmon.__main__.os.stat')
     def test_should_return_true_if_file_mtime_has_changed(self, stat):
@@ -461,6 +475,7 @@ class FileMonitorFileHasChagnedTestCase(unittest.TestCase):
         self.assertFalse(result)
 
 
+@test_type('unit')
 class FileMonitorShouldMonitorFileTestCase(unittest.TestCase):
     """ Test :py:meth:`FileMonitor.should_monitor_file`. """
 
@@ -475,37 +490,42 @@ class FileMonitorShouldMonitorFileTestCase(unittest.TestCase):
         self.assertFalse(result)
 
 
+@test_type('unit')
 class TddMonRunTestCase(unittest.TestCase):
     """ Test :py:meth:`TddMon.run`. """
 
-    @patch('tddmon.__main__.TestRunner')
     @patch('tddmon.__main__.StatusDisplay')
-    def test_should_run_tests_and_display_result(self, StatusDisplay, TestRunner):
+    def test_should_run_tests_and_display_result(self, StatusDisplay):
         """ Scenariusz: pojedyncze uruchomienie """
         # Arrange
         stdoutdata = ''
         stderrdata = ''
-        TestRunner().run.side_effect = [(stdoutdata, stderrdata)]
         obj = TddMon('test_file.py')
-        # Act
-        obj.run()
-        # Assert
-        StatusDisplay().write.assert_called_once_with(0, 0, 0, 0)
+        with patch.object(obj, 'test_runner') as test_runner:
+            test_runner.run.return_value = (stdoutdata, stderrdata)
+            # Act
+            obj.run()
+            # Assert
+            StatusDisplay().write.assert_called_once_with(0, 0, 0, 0)
 
 
+@test_type('unit')
 class TddMonLoopTestCase(unittest.TestCase):
     """ Test :py:meth:`TddMon.loop`. """
 
     @patch('tddmon.__main__.FileMonitor')
-    def test_should_stop_on_keayboard_interrupt(self, FileMonitor):
+    @patch('tddmon.__main__.StatusDisplay')
+    def test_should_stop_on_keayboard_interrupt(self, StatusDisplay, FileMonitor):
         """ Scenariusz: przerwanie działania """
         # Arrange
         output = StringIO()
         obj = TddMon('test_file.py', output=output)
-        FileMonitor().wait_for_change.side_effect = [KeyboardInterrupt]
-        # Act
-        obj.loop()
-        # Assert
+        StatusDisplay().write_header.return_value = 12
+        with patch.object(obj, 'run'):
+            FileMonitor().wait_for_change.side_effect = [KeyboardInterrupt]
+            # Act
+            obj.loop()
+            # Assert
 
     @patch('tddmon.__main__.StatusDisplay')
     @patch('tddmon.__main__.FileMonitor')
@@ -514,8 +534,9 @@ class TddMonLoopTestCase(unittest.TestCase):
         # Arrange
         obj = TddMon('test_file.py')
         FileMonitor().wait_for_change.side_effect = [FileMonitorTimeoutError, KeyboardInterrupt]
-        # Act
-        obj.loop()
+        with patch.object(obj, 'run'):
+            # Act
+            obj.loop()
         # Assert
         StatusDisplay().write_last.assert_called_once_with()
 
