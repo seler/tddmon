@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+from abc import ABCMeta, abstractmethod
 import argparse
 import os
 import re
 import sys
 import subprocess
 import time
+from six.moves.urllib.request import urlopen
+from six.moves.urllib.parse import urlencode
 
 # - uruchamianie testów z pokryciem kodu
 # - zapis wyniku testów do logu
@@ -23,7 +26,105 @@ DEFAULT_COLORS = {
 }
 
 
-class StatusDisplay(object):
+class IObservable(object):
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def register(self, observer):
+        pass  # pragma nocover
+
+    @abstractmethod
+    def notify_observers(self, *args, **kwargs):
+        pass  # pragma nocover
+
+
+class IObserver(object):
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def notify(self, observable, *args, **kwargs):
+        pass  # pragma nocover
+
+
+class StatusDisplay(IObserver, object):
+    """ <<sink>>
+
+    Responsibilities:
+
+        - print status information
+    """
+    def notify(self, observable, *args, **kwargs):
+        ran, failures, errors, coverage = args
+        # first run
+        if self._first_run:
+            self._write_header()
+            self._first_run = False
+        if ran is None:
+            self._write_empty()
+        else:
+            self._write(ran, failures, errors, coverage)
+
+    @abstractmethod
+    def _write(self, ran, failures, errors, coverage):
+        pass  # pragma nocover
+
+    @abstractmethod
+    def _write_header(self):
+        pass  # pragma nocover
+
+    @abstractmethod
+    def _write_empty(self):
+        pass  # pragma nocover
+
+
+class BWDisplay(StatusDisplay):
+    """ <<sink>>
+
+    Responsibilities:
+
+        - print status information
+    """
+    pattern = '%(color)s %(num)8d%(failures)9d%(errors)8d%(coverage)8d%%\n'
+    empty_pattern = '%(color)s%(space)28s%(space)8s%%\n'
+
+    def __init__(self, output=None, colors=None):
+        """@todo: Docstring for __init__
+
+        :param output: file to which write
+        :param colors: color codes used to display status
+        """
+        self._output = output if output is not None else sys.stdout
+        self._first_run = True
+
+    def _write_header(self):
+        self._output.write('      Tests ran Failures  Errors Coverage\n')
+
+    def _write_empty(self):
+        self._output.write('\n')
+
+    def _write(self, ran, failures, errors, coverage):
+        """ Display status information.
+
+        :param ran: number of tests run
+        :param failures: number of failures
+        :param errors: number of errors
+        :param coverage: coverage percent
+        """
+        if failures or errors:
+            color = 'FAIL: '
+        else:
+            color = 'OK:   '
+        line = self.pattern % {
+            'color': color,
+            'num': ran,
+            'failures': failures,
+            'errors': errors,
+            'coverage': coverage,
+        }
+        self._output.write(line)
+
+
+class ColorDisplay(StatusDisplay):
     """ <<sink>>
 
     Responsibilities:
@@ -43,14 +144,15 @@ class StatusDisplay(object):
         self._colors = colors if colors is not None else DEFAULT_COLORS
         self._last_run_color = ''
         self._last_run_cov_color = ''
+        self._first_run = True
 
-    def write_header(self):
+    def _write_header(self):
         self._output.write('Tests ran Failures  Errors Coverage\n')
 
-    def write_last(self):
+    def _write_empty(self):
         self._output.write('\n')
 
-    def write(self, ran, failures, errors, coverage):
+    def _write(self, ran, failures, errors, coverage):
         """ Display status information.
 
         :param ran: number of tests run
@@ -84,6 +186,42 @@ class StatusDisplay(object):
             'normal_color': '\033[0m',
         }
         self._output.write(line)
+
+
+class RemoteDisplay(IObserver, object):
+    """ <<sink>>
+
+    Responsibilities:
+
+        - send status information to central server
+    """
+
+    def __init__(self, url, name):
+        self._name = name
+        self._url = url
+
+    def notify(self, observable, *args, **kwargs):
+        ran, failures, errors, coverage = args
+        self._send(ran, failures, errors, coverage)
+
+    def _send(self, ran, failures, errors, coverage):
+        """ Send status information.
+
+        :param ran: number of tests run
+        :param failures: number of failures
+        :param errors: number of errors
+        :param coverage: coverage percent
+        """
+        data = {
+            'name': self._name,
+            'ran': ran,
+            'failures': failures,
+            'errors': errors,
+            'coverage': coverage
+        }
+        data = urlencode(data)
+        response = urlopen(self._url, data)
+        return response
 
 
 class AbstractWriter(object):
@@ -268,7 +406,7 @@ class FileMonitor(object):
         return (curr_mtime != last_mtime)
 
 
-class TddMon(object):
+class TddMon(IObservable, object):
     """ <<controller>>
 
     Collaborators:
@@ -276,15 +414,23 @@ class TddMon(object):
         - TestRunner - <<source>>
         - TestResultParser - <<filter>>
         - LogWriter - <<sink>>
-        - StatusDisplay - <<sink>>
+        - IObserver - <<sink>>
         - FileMonitor - <<source>>
     """
     def __init__(self, filename, log=None, output=None):
         self.test_runner = TestRunner(filename)
         self.log_writer = LogWriter(log) if log is not None else DummyWriter()
         self.test_result_parser = TestResultParser()
-        self.status_display = StatusDisplay(output)
         self.file_monitor = FileMonitor()
+        self.server = LogWriter(log) if log is not None else DummyWriter()
+        self._observers = []
+
+    def register(self, observer):
+        self._observers.append(observer)
+
+    def notify_observers(self, *args, **kwargs):
+        for observer in self._observers:
+            observer.notify(self, *args, **kwargs)
 
     def run(self):
         """@todo: Docstring for run
@@ -294,17 +440,16 @@ class TddMon(object):
         stdoutdata, stderrdata = self.test_runner.run()
         self.log_writer.write(stdoutdata + stderrdata)
         result = self.test_result_parser.parse(stderrdata)
-        self.status_display.write(*result)
+        self.notify_observers(*result)
 
     def loop(self):
-        self.status_display.write_header()
         self.run()
         try:
             while True:
                 try:
                     self.file_monitor.wait_for_change()
                 except FileMonitorTimeoutError:
-                    self.status_display.write_last()
+                    self.notify_observers(None, None, None, None)
                 else:
                     self.run()
         except KeyboardInterrupt:
@@ -317,8 +462,18 @@ def main(*args):
     parser = argparse.ArgumentParser()
     parser.add_argument('filename')
     parser.add_argument('-l', '--log', dest='log', type=argparse.FileType('a'))
+    parser.add_argument('-s', '--server', dest='server')
+    parser.add_argument('-n', '--name', dest='name')
+    default_color = (sys.platform != 'win32')
+    parser.add_argument('--nocolor', dest='color', default=default_color, action='store_false')
     result = parser.parse_args(*args)
     controller = TddMon(result.filename, log=result.log)
+    if result.color:
+        controller.register(ColorDisplay())
+    else:
+        controller.register(BWDisplay())
+    if result.server and result.name:
+        controller.register(RemoteDisplay(result.server, result.name))
     controller.loop()
 
 

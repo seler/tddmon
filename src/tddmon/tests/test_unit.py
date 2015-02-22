@@ -4,17 +4,19 @@
 import types
 import unittest
 
-from mock import patch, call
+from mock import patch, call, sentinel, Mock
 from six.moves import StringIO
+from six.moves.urllib.parse import urlencode
 from smarttest.decorators import test_type
 
-from tddmon import (main, StatusDisplay, DEFAULT_COLORS, LogWriter,
+from tddmon import (main, ColorDisplay, DEFAULT_COLORS, LogWriter,
                     TestRunner, TestResultParser, FileMonitor,
-                    FileMonitorTimeoutError, TddMon)
+                    FileMonitorTimeoutError, TddMon, RemoteDisplay,
+                    BWDisplay)
 
 
 @test_type('unit')
-class MainParseTestCase(unittest.TestCase):
+class MainTestCase(unittest.TestCase):
     """ Test :py:meth:`main`. """
 
     @patch('tddmon.__main__.sys.stderr')
@@ -26,7 +28,8 @@ class MainParseTestCase(unittest.TestCase):
         self.assertRaises(SystemExit, main, [])
 
     @patch('tddmon.__main__.TddMon')
-    def test_should_return_filename_when_filename_given(self, TddMon):
+    @patch('tddmon.__main__.ColorDisplay')
+    def test_should_return_filename_when_filename_given(self, ColorDisplay, TddMon):
         """ Scenariusz: podany tylko plik """
         # Arrange
         # Act
@@ -34,94 +37,181 @@ class MainParseTestCase(unittest.TestCase):
         main([filename])
         # Assert
         TddMon.assert_called_once_with(filename, log=None)
-        TddMon().loop.assert_called_once_with()
+        tddmon = TddMon()
+        tddmon.loop.assert_called_once_with()
+        tddmon.register.assert_has_calls([call(ColorDisplay())])
+
+    @patch('tddmon.__main__.TddMon')
+    @patch('tddmon.__main__.ColorDisplay')
+    @patch('tddmon.__main__.RemoteDisplay')
+    def test_should_register_remote_display_on_url_and_name(self, RemoteDisplay, ColorDisplay, TddMon):
+        """ Scenariusz: wysylanie do zdalnego serwera """
+        # Arrange
+        # Act
+        filename = 'plik.py'
+        main(['-s', 'example.com', '-n', 'username', filename])
+        # Assert
+        TddMon.assert_called_once_with(filename, log=None)
+        tddmon = TddMon()
+        tddmon.loop.assert_called_once_with()
+        tddmon.register.assert_has_calls([call(ColorDisplay()), call(RemoteDisplay())])
+
+    @patch('tddmon.__main__.TddMon')
+    @patch('tddmon.__main__.ColorDisplay')
+    @patch('tddmon.__main__.RemoteDisplay')
+    def test_should_not_register_remote_display_if_no_url(self, RemoteDisplay, ColorDisplay, TddMon):
+        """ Scenariusz: brak parametru url """
+        # Arrange
+        # Act
+        filename = 'plik.py'
+        main(['-n', 'username', filename])
+        # Assert
+        TddMon.assert_called_once_with(filename, log=None)
+        tddmon = TddMon()
+        tddmon.loop.assert_called_once_with()
+        tddmon.register.assert_has_calls([call(ColorDisplay())])
+
+    @patch('tddmon.__main__.TddMon')
+    @patch('tddmon.__main__.ColorDisplay')
+    @patch('tddmon.__main__.RemoteDisplay')
+    def test_should_not_register_remote_display_if_no_name(self, RemoteDisplay, ColorDisplay, TddMon):
+        """ Scenariusz: brak parametru name """
+        # Arrange
+        # Act
+        filename = 'plik.py'
+        main(['-n', 'username', filename])
+        # Assert
+        TddMon.assert_called_once_with(filename, log=None)
+        tddmon = TddMon()
+        tddmon.loop.assert_called_once_with()
+        tddmon.register.assert_has_calls([call(ColorDisplay())])
+
+    @patch('tddmon.__main__.TddMon')
+    @patch('tddmon.__main__.BWDisplay')
+    def test_should_register_bwdisplay_if_no_color_param(self, BWDisplay, TddMon):
+        """ Scenariusz: brak koloru """
+        # Arrange
+        # Act
+        filename = 'plik.py'
+        main(['--nocolor', filename])
+        # Assert
+        TddMon.assert_called_once_with(filename, log=None)
+        tddmon = TddMon()
+        tddmon.loop.assert_called_once_with()
+        tddmon.register.assert_has_calls([call(BWDisplay())])
 
 
 @test_type('unit')
-class StatusDisplayWriteTestCase(unittest.TestCase):
-    """ Test :py:meth:`StatusDisplay.write`. """
+class ColorDisplayNotifyTestCase(unittest.TestCase):
+    """ Test :py:meth:`ColorDisplay.notify`. """
 
     def setUp(self):
         self.output = StringIO()
-        self.obj = StatusDisplay(self.output)
-        super(StatusDisplayWriteTestCase, self).setUp()
+        self.obj = ColorDisplay(self.output)
+        super(ColorDisplayNotifyTestCase, self).setUp()
+
+    def test_should_print_header_on_first_line(self):
+        """ Scenariusz: pierwszy wynik """
+        # Arrange
+        # Act
+        self.obj.notify(sentinel.observable, None, None, None, None)
+        # Assert
+        expected = 'Tests ran Failures  Errors Coverage\n'
+        result = self.output.getvalue()
+        self.assertTrue(result.startswith(expected))
+
+    def test_should_print_empty_line(self):
+        """ Scenariusz: brak danych - timeout """
+        # Arrange
+        # Act
+        self.obj.notify(sentinel.observable, None, None, None, None)
+        # Assert
+        expected = '\n'
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
 
     def test_should_write_in_green_on_successful_run(self):
         """ Scenariusz: testy zakończone sukcesem """
         # Arrange
         # Act
         num, failures, errors, coverage = 1, 0, 0, 100
-        self.obj.write(num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
         # Assert
         color = DEFAULT_COLORS['green']
         expected = self._prepare_expected(color, failures, errors, num, coverage)
-        self.assertEqual(self.output.getvalue(), expected)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
 
     def test_should_write_in_red_on_failed_run(self):
         """ Scenariusz: testy zakończone porażką """
         # Arrange
         # Act
         num, failures, errors, coverage = 1, 1, 0, 80
-        self.obj.write(num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
         # Assert
         color = DEFAULT_COLORS['red']
         expected = self._prepare_expected(color, failures, errors, num, coverage)
-        self.assertEqual(self.output.getvalue(), expected)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
 
     def test_should_write_in_green_if_no_tests(self):
         """ Scenariusz: brak testów """
         # Arrange
         # Act
         num, failures, errors, coverage = 0, 0, 0, 0
-        self.obj.write(num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
         # Assert
         color = DEFAULT_COLORS['green']
         sea = DEFAULT_COLORS['sea']
         expected = self._prepare_expected(color, failures, errors, num,
                                           coverage, coverage_color=sea)
-        self.assertEqual(self.output.getvalue(), expected)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
 
     def test_should_write_in_red_if_error_occure(self):
         """ Scenariusz: wystąpiły błędy """
         # Arrange
         # Act
         num, failures, errors, coverage = 1, 0, 1, 50
-        self.obj.write(num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
         # Assert
         color = DEFAULT_COLORS['red']
         expected = self._prepare_expected(color, failures, errors, num, coverage)
-        self.assertEqual(self.output.getvalue(), expected)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
 
     def test_should_write_in_green_and_sea_on_successful_run_with_not_fully_covered(self):
         """ Scenariusz: testy zakończone sukcesem ale nie pełne pokrycie"""
         # Arrange
         # Act
         num, failures, errors, coverage = 1, 0, 0, 50
-        self.obj.write(num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
         # Assert
         color = DEFAULT_COLORS['green']
         sea = DEFAULT_COLORS['sea']
         expected = self._prepare_expected(color, failures, errors, num,
                                           coverage, coverage_color=sea)
-        self.assertEqual(self.output.getvalue(), expected)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
 
     def test_should_write_in_blue_on_repeated_green(self):
         """ Scenariusz: ponowne uruchomienie na zielono """
         # Arrange
         # Act
         num, failures, errors, coverage = 1, 0, 0, 100
-        self.obj.write(num, failures, errors, coverage)
-        self.obj.write(num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
         # Assert
         color = DEFAULT_COLORS['green']
         expected = self._prepare_expected(color, failures, errors, num, coverage)
         color = DEFAULT_COLORS['blue']
         expected += self._prepare_expected(color, failures, errors, num, coverage)
-        self.assertEqual(self.output.getvalue(), expected)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
 
     def _prepare_expected(self, color, failures, errors, num, coverage, coverage_color=None):
         coverage_color = coverage_color if coverage_color is not None else color
-        expected = StatusDisplay.pattern % {
+        expected = ColorDisplay.pattern % {
             'color': '\033[%sm' % color,
             'num': num,
             'failures': failures,
@@ -134,35 +224,118 @@ class StatusDisplayWriteTestCase(unittest.TestCase):
 
 
 @test_type('unit')
-class StatusDisplayWriteHeaderTestCase(unittest.TestCase):
-    """ Test :py:meth:`StatusDisplay.write_header`. """
+class BWDisplayNotifyTestCase(unittest.TestCase):
+    """ Test :py:meth:`BWDisplay.notify`. """
 
-    def test_should_print_header(self):
-        """ Scenariusz: nagłówek """
+    def setUp(self):
+        self.output = StringIO()
+        self.obj = BWDisplay(self.output)
+        super(BWDisplayNotifyTestCase, self).setUp()
+
+    def test_should_print_header_on_first_line(self):
+        """ Scenariusz: pierwszy wynik """
         # Arrange
-        output = StringIO()
-        obj = StatusDisplay(output)
         # Act
-        obj.write_header()
+        self.obj.notify(sentinel.observable, None, None, None, None)
         # Assert
-        expected = 'Tests ran Failures  Errors Coverage\n'
-        self.assertEqual(output.getvalue(), expected)
-
-
-@test_type('unit')
-class StatusDisplayWriteLastTestCase(unittest.TestCase):
-    """ Test :py:meth:`StatusDisplay.write_last`. """
+        expected = '      Tests ran Failures  Errors Coverage\n'
+        result = self.output.getvalue()
+        self.assertTrue(result.startswith(expected))
 
     def test_should_print_empty_line(self):
-        """ Scenariusz: pusta linia """
+        """ Scenariusz: brak danych - timeout """
         # Arrange
-        output = StringIO()
-        obj = StatusDisplay(output)
         # Act
-        obj.write_last()
+        self.obj.notify(sentinel.observable, None, None, None, None)
         # Assert
         expected = '\n'
-        self.assertEqual(output.getvalue(), expected)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
+
+    def test_should_write_in_green_on_successful_run(self):
+        """ Scenariusz: testy zakończone sukcesem """
+        # Arrange
+        # Act
+        num, failures, errors, coverage = 1, 0, 0, 100
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        # Assert
+        color = 'OK:   '
+        expected = self._prepare_expected(color, failures, errors, num, coverage)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
+
+    def test_should_write_in_red_on_failed_run(self):
+        """ Scenariusz: testy zakończone porażką """
+        # Arrange
+        # Act
+        num, failures, errors, coverage = 1, 1, 0, 80
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        # Assert
+        color = 'FAIL: '
+        expected = self._prepare_expected(color, failures, errors, num, coverage)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
+
+    def test_should_write_in_green_if_no_tests(self):
+        """ Scenariusz: brak testów """
+        # Arrange
+        # Act
+        num, failures, errors, coverage = 0, 0, 0, 0
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        # Assert
+        color = 'OK:   '
+        expected = self._prepare_expected(color, failures, errors, num, coverage)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
+
+    def test_should_write_in_red_if_error_occure(self):
+        """ Scenariusz: wystąpiły błędy """
+        # Arrange
+        # Act
+        num, failures, errors, coverage = 1, 0, 1, 50
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        # Assert
+        color = 'FAIL: '
+        expected = self._prepare_expected(color, failures, errors, num, coverage)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
+
+    def test_should_write_in_green_and_sea_on_successful_run_with_not_fully_covered(self):
+        """ Scenariusz: testy zakończone sukcesem ale nie pełne pokrycie"""
+        # Arrange
+        # Act
+        num, failures, errors, coverage = 1, 0, 0, 50
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        # Assert
+        color = 'OK:   '
+        expected = self._prepare_expected(color, failures, errors, num, coverage)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
+
+    def test_should_write_in_blue_on_repeated_green(self):
+        """ Scenariusz: ponowne uruchomienie na zielono """
+        # Arrange
+        # Act
+        num, failures, errors, coverage = 1, 0, 0, 100
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        self.obj.notify(sentinel.observable, num, failures, errors, coverage)
+        # Assert
+        color = 'OK:   '
+        expected = self._prepare_expected(color, failures, errors, num, coverage)
+        color = 'OK:   '
+        expected += self._prepare_expected(color, failures, errors, num, coverage)
+        result = self.output.getvalue()
+        self.assertTrue(result.endswith(expected))
+
+    def _prepare_expected(self, color, failures, errors, num, coverage, coverage_color=None):
+        expected = BWDisplay.pattern % {
+            'color': color,
+            'num': num,
+            'failures': failures,
+            'errors': errors,
+            'coverage': coverage,
+        }
+        return expected
 
 
 @test_type('unit')
@@ -494,19 +667,20 @@ class FileMonitorShouldMonitorFileTestCase(unittest.TestCase):
 class TddMonRunTestCase(unittest.TestCase):
     """ Test :py:meth:`TddMon.run`. """
 
-    @patch('tddmon.__main__.StatusDisplay')
-    def test_should_run_tests_and_display_result(self, StatusDisplay):
+    def test_should_run_tests_and_display_result(self):
         """ Scenariusz: pojedyncze uruchomienie """
         # Arrange
         stdoutdata = ''
         stderrdata = ''
+        status_display = Mock()
         obj = TddMon('test_file.py')
+        obj.register(status_display)
         with patch.object(obj, 'test_runner') as test_runner:
             test_runner.run.return_value = (stdoutdata, stderrdata)
             # Act
             obj.run()
             # Assert
-            StatusDisplay().write.assert_called_once_with(0, 0, 0, 0)
+            status_display.notify(0, 0, 0, 0)
 
 
 @test_type('unit')
@@ -514,35 +688,19 @@ class TddMonLoopTestCase(unittest.TestCase):
     """ Test :py:meth:`TddMon.loop`. """
 
     @patch('tddmon.__main__.FileMonitor')
-    @patch('tddmon.__main__.StatusDisplay')
-    def test_should_stop_on_keayboard_interrupt(self, StatusDisplay, FileMonitor):
+    def test_should_stop_on_keayboard_interrupt(self, FileMonitor):
         """ Scenariusz: przerwanie działania """
         # Arrange
         output = StringIO()
         obj = TddMon('test_file.py', output=output)
-        StatusDisplay().write_header.return_value = 12
         with patch.object(obj, 'run'):
             FileMonitor().wait_for_change.side_effect = [KeyboardInterrupt]
             # Act
             obj.loop()
             # Assert
 
-    @patch('tddmon.__main__.StatusDisplay')
     @patch('tddmon.__main__.FileMonitor')
-    def test_should_print_last_on_timeout(self, FileMonitor, StatusDisplay):
-        """ Scenariusz: timeout """
-        # Arrange
-        obj = TddMon('test_file.py')
-        FileMonitor().wait_for_change.side_effect = [FileMonitorTimeoutError, KeyboardInterrupt]
-        with patch.object(obj, 'run'):
-            # Act
-            obj.loop()
-        # Assert
-        StatusDisplay().write_last.assert_called_once_with()
-
-    @patch('tddmon.__main__.StatusDisplay')
-    @patch('tddmon.__main__.FileMonitor')
-    def test_should_run_tests(self, FileMonitor, StatusDisplay):
+    def test_should_run_tests(self, FileMonitor):
         """ Scenariusz: run """
         # Arrange
         obj = TddMon('test_file.py')
@@ -552,6 +710,68 @@ class TddMonLoopTestCase(unittest.TestCase):
             obj.loop()
             # Assert
             run.assert_has_calls([call(), call()])
+
+    @patch('tddmon.__main__.FileMonitor')
+    def test_should_notify_with_no_values_on_timeout(self, FileMonitor):
+        """ Scenariusz: timeout """
+        # Arrange
+        output = StringIO()
+        obj = TddMon('test_file.py', output=output)
+        status_display = Mock()
+        obj.register(status_display)
+        with patch.object(obj, 'run'):
+            with patch.object(obj, 'file_monitor') as file_monitor:
+                file_monitor.wait_for_change.side_effect = [FileMonitorTimeoutError, KeyboardInterrupt]
+                # Act
+                obj.loop()
+                # Assert
+                status_display.notify.assert_called_once_with(obj, None, None, None, None)
+
+
+@test_type('unit')
+class TddMonRegister(unittest.TestCase):
+    """ Test :py:meth:`TddMon.register`. """
+
+    def test_should_register_status_monitor(self):
+        """ Scenariusz: rejestracja monitora """
+        # Arrange
+        monitor = sentinel.monitor
+        obj = TddMon('test_file.py')
+        self.assertTrue(monitor not in obj._observers)
+        # Act
+        obj.register(monitor)
+        # Assert
+        self.assertTrue(monitor in obj._observers)
+
+
+@test_type('unit')
+class RemoteDisplayNotifyTestCase(unittest.TestCase):
+    """ Test :py:meth:`RemoteDisplay.notify`. """
+
+    def setUp(self):
+        self.output = StringIO()
+        self._name = sentinel.name
+        self._url = sentinel.url
+        self.obj = RemoteDisplay(self._url, self._name)
+        super(RemoteDisplayNotifyTestCase, self).setUp()
+
+    @patch('tddmon.__main__.urlopen')
+    def test_should_send_status_information(self, urlopen):
+        """ Scenariusz: wysyla wynik """
+        # Arrange
+        # Act
+        self.obj.notify(sentinel.observable, sentinel.ran, sentinel.failures,
+                        sentinel.errors, sentinel.coverage)
+        # Assert
+        data = {
+            'name': self._name,
+            'ran': sentinel.ran,
+            'failures': sentinel.failures,
+            'errors': sentinel.errors,
+            'coverage': sentinel.coverage
+        }
+        data = urlencode(data)
+        urlopen.assert_called_once_with(self._url, data)
 
 
 if __name__ == '__main__':  # pragma: nobranch

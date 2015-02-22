@@ -7,7 +7,7 @@ from morelia import Parser
 from six.moves import StringIO
 from smarttest.decorators import test_type
 
-from tddmon import DEFAULT_COLORS, TddMon
+from tddmon import DEFAULT_COLORS, TddMon, ColorDisplay
 
 
 @test_type('acceptance')
@@ -27,7 +27,9 @@ class RunMonitorTestCase(unittest.TestCase):
         self.test_file = test_file
         self.tests_num = int(tests_num)
         self.output = StringIO()
-        self.controller = TddMon(self.test_file, output=self.output)
+        self.controller = TddMon(self.test_file)
+        self.status_display = ColorDisplay(self.output)
+        self.controller.register(self.status_display)
 
     def step_failures_num_testow_skutkuje_niepowodzeniem(self, failures_num):
         u'(.+) testów skutkuje niepowodzeniem'
@@ -74,7 +76,7 @@ class RunMonitorTestCase(unittest.TestCase):
 
         color = DEFAULT_COLORS['red']
         expected = '^\033\[%sm\s+%d' % (color, int(tests_num))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_zobacze_na_czerwono_informacje_o_failures_num_testach_zakonczonych_niepowodzeniem(self, failures_num):
@@ -82,7 +84,7 @@ class RunMonitorTestCase(unittest.TestCase):
 
         color = DEFAULT_COLORS['red']
         expected = '^\033\[%sm\s+\d+\s+%d' % (color, int(failures_num))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_zobacze_na_czerwono_informacje_o_errors_num_testach_zakonczonych_bedem(self, errors_num):
@@ -90,7 +92,7 @@ class RunMonitorTestCase(unittest.TestCase):
 
         color = DEFAULT_COLORS['red']
         expected = '^\033\[%sm\s+\d+\s+\d+\s+%d' % (color, int(errors_num))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_zobacze_na_czerwono_informacje_o_pokryciu_kodu_na_poziomie_coverage(self, coverage):
@@ -98,7 +100,7 @@ class RunMonitorTestCase(unittest.TestCase):
 
         color = DEFAULT_COLORS['red']
         expected = '^\033\[%sm\s+\d+\s+\d+\s+\d+\s+%d' % (color, int(coverage))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_wszystkie_testy_przechodza(self):
@@ -106,17 +108,13 @@ class RunMonitorTestCase(unittest.TestCase):
 
         self.failures_num = 0
         self.errors_num = 0
-        # color = DEFAULT_COLORS['green']
-        # expected = '^\033\[%sm\s+\d+\s+0\s+0' % color
-        # result = self.output.getvalue()
-        # self.assertTrue(bool(re.search(expected, result)))
 
     def step_zobacze_na_zielono_informacje_o_wykonaniu_tests_num_testow(self, tests_num):
         u'zobaczę na zielono informację o wykonaniu (.+) testów'
 
         color = DEFAULT_COLORS['green']
         expected = '^\033\[%sm\s+%d' % (color, int(tests_num))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_zobacze_na_zielono_informacje_o_pokryciu_kodu_na_poziomie_coverage(self, coverage):
@@ -124,7 +122,7 @@ class RunMonitorTestCase(unittest.TestCase):
 
         color = DEFAULT_COLORS['green']
         expected = '^\033\[%sm\s+\d+\s+\d+\s+\d+\s+%d' % (color, int(coverage))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_zobacze_w_kolorze_morskim_informacje_o_pokryciu_kodu_na_poziomie_coverage(self, coverage):
@@ -132,20 +130,20 @@ class RunMonitorTestCase(unittest.TestCase):
 
         color = DEFAULT_COLORS['sea']
         expected = '^\033\[\d+m\s+\d+\s+\d+\s+\d+\033\[%sm\s*%d' % (color, int(coverage))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_poprzedni_test_zakonczy_sie_sukcesem(self):
         u'poprzedni test zakończył się sukcesem'
 
-        self.controller.status_display._last_run_color = DEFAULT_COLORS['green']
+        self.status_display._last_run_color = DEFAULT_COLORS['green']
 
     def step_zobacze_na_niebiesko_informacje_o_wykonaniu_tests_num_testow(self, tests_num):
         u'zobaczę na niebiesko informację o wykonaniu (.+) testów'
 
         color = DEFAULT_COLORS['blue']
         expected = '^\033\[%sm\s+%d' % (color, int(tests_num))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def step_zobacze_na_niebiesko_informacje_o_pokryciu_kodu_na_poziomie_coverage(self, coverage):
@@ -153,7 +151,7 @@ class RunMonitorTestCase(unittest.TestCase):
 
         color = DEFAULT_COLORS['blue']
         expected = '^\033\[%sm\s+\d+\s+\d+\s+\d+\s+%d' % (color, int(coverage))
-        result = self.output.getvalue()
+        result = self.output.getvalue().splitlines()[-1]
         self.assertTrue(bool(re.search(expected, result)))
 
     def test_run_tests(self):
