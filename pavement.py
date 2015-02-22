@@ -87,6 +87,14 @@ def test_all(options):
 
 
 @task
+def html(options):
+    try:
+        paver.doctools.html()
+    except SystemExit:
+        pass
+
+
+@task
 @needs('cleanup', 'kwalitee', 'test_all', 'test_install', 'html')
 def pre_release(options):
     """ Check project before release. """
@@ -120,7 +128,7 @@ def twine_upload(options):
 
 
 @task
-@needs('cleanup', 'build', 'html', 'sign_dist', 'twine_upload', 'publish_docs')
+@needs('cleanup', 'build', 'sign_dist', 'twine_upload')
 def release(options):
     """ Generate packages and upload to PyPI. """
     pass
